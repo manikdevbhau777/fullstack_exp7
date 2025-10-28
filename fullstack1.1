@@ -1,0 +1,49 @@
+const express = require("express");
+const app = express();
+
+app.use(express.json());
+
+// In-memory data storage
+let cards = [];
+let nextId = 1;
+
+// GET - List all cards
+app.get("/cards", (req, res) => {
+  res.json(cards);
+});
+
+// POST - Add a new card
+app.post("/cards", (req, res) => {
+  const { suit, value } = req.body;
+  if (!suit || !value) {
+    return res.status(400).json({ message: "Suit and value are required." });
+  }
+  const newCard = { id: nextId++, suit, value };
+  cards.push(newCard);
+  res.status(201).json(newCard);
+});
+
+// GET - Retrieve a specific card by ID
+app.get("/cards/:id", (req, res) => {
+  const id = parseInt(req.params.id);
+  const card = cards.find((c) => c.id === id);
+  if (!card) {
+    return res.status(404).json({ message: "Card not found." });
+  }
+  res.json(card);
+});
+
+// DELETE - Remove a card by ID
+app.delete("/cards/:id", (req, res) => {
+  const id = parseInt(req.params.id);
+  cards = cards.filter((c) => c.id !== id);
+  res.json({ message: "Card deleted successfully." });
+});
+
+// Default route
+app.get("/", (req, res) => {
+  res.send("Welcome to the Playing Card Collection API!");
+});
+
+// Export app (important for Nimbus testing)
+module.exports = app;
