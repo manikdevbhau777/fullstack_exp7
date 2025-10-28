@@ -1,0 +1,121 @@
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const { Server } = require('socket.io');
+
+const app = express();
+app.use(cors());
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+
+let connectedUsers = {};
+
+io.on('connection', (socket) => {
+  socket.on('join', (username) => {
+    connectedUsers[socket.id] = username || 'Anonymous';
+    io.emit('user_list', Object.values(connectedUsers));
+    io.emit('system_message', { text: `${connectedUsers[socket.id]} has joined the chat.`, time: Date.now() });
+  });
+
+  socket.on('send_message', (msg) => {
+    const payload = { id: Date.now(), user: connectedUsers[socket.id] || 'Anonymous', text: msg.text, time: Date.now() };
+    io.emit('receive_message', payload);
+  });
+
+  socket.on('disconnect', () => {
+    const username = connectedUsers[socket.id];
+    if (username) {
+      delete connectedUsers[socket.id];
+      io.emit('user_list', Object.values(connectedUsers));
+      io.emit('system_message', { text: `${username} has left the chat.`, time: Date.now() });
+    }
+  });
+});
+
+app.get('/', (req, res) => res.send({ status: 'running' }));
+server.listen(4000, () => console.log('Server running on port 4000'));
+
+// ================= CLIENT =================
+import React, { useEffect, useState, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
+import { io } from 'socket.io-client';
+import './index.css';
+
+const socket = io('http://localhost:4000');
+
+function App() {
+  const [username, setUsername] = useState('');
+  const [tempName, setTempName] = useState('');
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => {
+    socket.on('receive_message', (data) => setMessages((m) => [...m, data]));
+    socket.on('system_message', (data) => setMessages((m) => [...m, { ...data, system: true }]));
+    socket.on('user_list', (list) => setUsers(list));
+    return () => {
+      socket.off('receive_message');
+      socket.off('system_message');
+      socket.off('user_list');
+    };
+  }, []);
+
+  const joinChat = () => {
+    if (tempName.trim()) {
+      setUsername(tempName);
+      socket.emit('join', tempName);
+    }
+  };
+
+  const sendMessage = () => {
+    if (message.trim()) {
+      socket.emit('send_message', { text: message });
+      setMessage('');
+    }
+  };
+
+  return (
+    <div className="app">
+      {!username ? (
+        <div className="join">
+          <input value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Enter name" />
+          <button onClick={joinChat}>Join</button>
+        </div>
+      ) : (
+        <div className="chat">
+          <aside>
+            <h3>{username}</h3>
+            <ul>{users.map((u, i) => <li key={i}>{u}</li>)}</ul>
+          </aside>
+          <main>
+            <div className="messages">
+              {messages.map((m) => (
+                <div key={m.time} className={m.system ? 'system' : m.user === username ? 'mine' : 'other'}>
+                  <b>{m.user}:</b> {m.text}
+                </div>
+              ))}
+            </div>
+            <div className="input">
+              <input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Type..." />
+              <button onClick={sendMessage}>Send</button>
+            </div>
+          </main>
+        </div>
+      )}
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
+
+body { font-family: Arial; margin: 0; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.join, .input { display: flex; gap: 8px; padding: 10px; }
+.chat { display: flex; height: 100%; }
+aside { width: 200px; border-right: 1px solid #ccc; padding: 10px; }
+main { flex: 1; display: flex; flex-direction: column; }
+.messages { flex: 1; overflow-y: auto; padding: 10px; }
+.system { text-align: center; color: gray; }
+.mine { text-align: right; color: blue; }
+.other { text-align: left; color: green; }
